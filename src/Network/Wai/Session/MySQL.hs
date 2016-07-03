@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
+-- copied from https://github.com/hce/postgresql-session/blob/master/src/Network/Wai/Session/PostgreSQL.hs and modified
 
 -- |
 -- Module: Network.Wai.Session.MySQL
