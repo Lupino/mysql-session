@@ -257,11 +257,14 @@ clearSession pool cookieName req = do
     let map         = [] :: [(k, v)]
         map'        = "" -- encode map
         cookies     = parseCookies <$> lookup (fromString "Cookie") (requestHeaders req)
-        Just key    = lookup cookieName =<< cookies
-    withMySQLConn pool $ \ conn ->
-        withTransaction conn $ do
-            void $ execute conn qryInvalidateSess1 (Only key)
-            void $ execute conn qryInvalidateSess2 (Only key)
+        mkey    = lookup cookieName =<< cookies
+    case mkey of
+      Just key ->
+        withMySQLConn pool $ \ conn ->
+            withTransaction conn $ do
+                void $ execute conn qryInvalidateSess1 (Only key)
+                void $ execute conn qryInvalidateSess2 (Only key)
+      Nothing -> return ()
 
 backend :: (WithMySQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> StoreSettings -> B.ByteString -> Int64 -> IO (Session m k v, IO B.ByteString)
 backend pool stos key sessionId =
