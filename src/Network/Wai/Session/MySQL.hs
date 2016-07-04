@@ -197,7 +197,7 @@ purgeOldSessions :: WithMySQLConn a => a -> StoreSettings -> IO Int64
 purgeOldSessions pool stos = do
     curtime <- round <$> liftIO getPOSIXTime
     count <- withMySQLConn pool $ \ conn -> do
-        execute conn qryPurgeOldSessionsData (Only (curtime - storeSettingsSessionTimeout stos))
+        void $ execute conn qryPurgeOldSessionsData (Only (curtime - storeSettingsSessionTimeout stos))
         execute conn qryPurgeOldSessions (Only (curtime - storeSettingsSessionTimeout stos))
     storeSettingsLog stos $ "Purged " ++ show count ++ " session(s)."
     return count
@@ -234,7 +234,7 @@ dbStore' pool stos Nothing = do
     newKey <- storeSettingsKeyGen stos
     curtime <- liftIO getPOSIXTime
     sessionId <- withMySQLConn pool $ \ conn -> do
-        execute conn qryCreateSession (newKey, round curtime :: Int64, round curtime :: Int64)
+        void $ execute conn qryCreateSession (newKey, round curtime :: Int64, round curtime :: Int64)
         fromIntegral <$> insertID conn
     backend pool stos newKey sessionId
 dbStore' pool stos (Just key) = do
