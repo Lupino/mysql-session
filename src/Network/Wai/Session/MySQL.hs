@@ -166,6 +166,9 @@ qryLookupSession''' = "SELECT `id` FROM `wai_session_data` WHERE `wai_session`=?
 qryPurgeOldSessions :: Query
 qryPurgeOldSessions = "DELETE FROM `wai_sessions` WHERE `session_last_access`<?"
 
+qryPurgeOldSessionsData :: Query
+qryPurgeOldSessionsData = "DELETE FROM `wai_session_data` WHERE `wai_session` IN (SELECT `id` FROM `wai_sessions` WHERE `session_last_access`<?)"
+
 qryCheckNewKey :: Query
 qryCheckNewKey = "SELECT `session_invalidate_key` FROM `wai_sessions` WHERE `session_key`=?"
 
@@ -193,7 +196,8 @@ dbStore pool stos = do
 purgeOldSessions :: WithMySQLConn a => a -> StoreSettings -> IO Int64
 purgeOldSessions pool stos = do
     curtime <- round <$> liftIO getPOSIXTime
-    count <- withMySQLConn pool $ \ conn ->
+    count <- withMySQLConn pool $ \ conn -> do
+        execute conn qryPurgeOldSessionsData (Only (curtime - storeSettingsSessionTimeout stos))
         execute conn qryPurgeOldSessions (Only (curtime - storeSettingsSessionTimeout stos))
     storeSettingsLog stos $ "Purged " ++ show count ++ " session(s)."
     return count
