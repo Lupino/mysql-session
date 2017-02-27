@@ -30,29 +30,27 @@ module Network.Wai.Session.MySQL
     , WithMySQLConn (..)
     ) where
 
-import Control.Applicative ((<$>))
-import Control.Concurrent
-import Control.Concurrent.MVar
-import Control.Exception.Base
-import Control.Exception
-import Control.Monad
-import Control.Monad.IO.Class
-import Data.Default
-import Data.Int (Int64)
-import Data.Pool (Pool, withResource)
-import Data.Serialize (encode, decode, Serialize)
-import Data.String (fromString)
-import Data.Time.Clock.POSIX (getPOSIXTime)
-import Database.MySQL.Simple
-import Network.Wai (Request, requestHeaders)
-import Network.Wai.Session
-import Numeric (showHex)
-import System.Entropy (getEntropy)
-import Web.Cookie (parseCookies)
+import           Control.Applicative    ((<$>))
+import           Control.Concurrent
+import           Control.Exception
+import           Control.Monad
+import           Control.Monad.IO.Class
+import           Data.Default
+import           Data.Int               (Int64)
+import           Data.Pool              (Pool, withResource)
+import           Data.Serialize         (Serialize, decode, encode)
+import           Data.String            (fromString)
+import           Data.Time.Clock.POSIX  (getPOSIXTime)
+import           Database.MySQL.Simple
+import           Network.Wai            (Request, requestHeaders)
+import           Network.Wai.Session
+import           Numeric                (showHex)
+import           System.Entropy         (getEntropy)
+import           Web.Cookie             (parseCookies)
 
-import qualified Data.ByteString as B
-import qualified Data.Text as T
-import qualified Data.Text.Encoding as TE
+import qualified Data.ByteString        as B
+import qualified Data.Text              as T
+import qualified Data.Text.Encoding     as TE
 
 -- |These settings control how the session store is behaving
 data StoreSettings = StoreSettings {
@@ -63,17 +61,17 @@ data StoreSettings = StoreSettings {
     -- |A random session key generator. The session ID should provide
     -- sufficient entropy, and must not be predictable. It is recommended
     -- to use a cryptographically secure random number generator.
-    , storeSettingsKeyGen :: IO B.ByteString
+    , storeSettingsKeyGen         :: IO B.ByteString
     -- |Whether to create the database table if it does not exist upon
     -- creating the session store. If set to false, the database table
     -- must exist or be created by some other means.
-    , storeSettingsCreateTable :: Bool
+    , storeSettingsCreateTable    :: Bool
     -- |A function that is called by to log events such as session
     -- purges or the table creation.
-    , storeSettingsLog :: String -> IO ()
+    , storeSettingsLog            :: String -> IO ()
     -- |The number of microseconds to sleep between two runs of the
     -- old session purge worker.
-    , storeSettingsPurgeInterval :: Int
+    , storeSettingsPurgeInterval  :: Int
     }
 
 instance Default StoreSettings where
@@ -206,7 +204,7 @@ purgeOldSessions pool stos = do
 -- purge old sessions.
 purger :: WithMySQLConn a => a -> StoreSettings -> IO ThreadId
 purger pool stos = forkIO . forever . unerror $ do
-    purgeOldSessions pool stos
+    void $ purgeOldSessions pool stos
     threadDelay $ storeSettingsPurgeInterval stos
 
 -- |Create default settings using a session timeout of
@@ -242,8 +240,8 @@ dbStore' pool stos (Just key) = do
     res <- withMySQLConn pool $ \ conn ->
         query conn qryLookupSession (key, curtime - storeSettingsSessionTimeout stos) :: IO [Only Int64]
     case res of
-        [Only sessionId]  -> backend pool stos key sessionId
-        _                   -> dbStore' pool stos Nothing
+        [Only sessionId] -> backend pool stos key sessionId
+        _                -> dbStore' pool stos Nothing
 
 -- |This function can be called to invalidate a session and enforce creating
 -- a new one with a new session ID. It should be called *before* any calls
@@ -254,9 +252,7 @@ dbStore' pool stos (Just key) = do
 -- kinds of session hijacking attacks.
 clearSession :: (WithMySQLConn a) => a -> B.ByteString -> Request -> IO ()
 clearSession pool cookieName req = do
-    let map         = [] :: [(k, v)]
-        map'        = "" -- encode map
-        cookies     = parseCookies <$> lookup (fromString "Cookie") (requestHeaders req)
+    let cookies     = parseCookies <$> lookup (fromString "Cookie") (requestHeaders req)
         mkey    = lookup cookieName =<< cookies
     case mkey of
       Just key ->
@@ -278,7 +274,7 @@ backend pool stos key sessionId =
         [Only shouldNewKey] <- query conn qryCheckNewKey (Only key)
         if shouldNewKey then do
             newKey' <- storeSettingsKeyGen stos
-            execute conn qryUpdateKey (newKey', key)
+            void $ execute conn qryUpdateKey (newKey', key)
             return newKey'
         else
             return key
@@ -286,25 +282,26 @@ backend pool stos key sessionId =
 
 
 reader :: (WithMySQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> B.ByteString -> Int64 -> k -> m (Maybe v)
-reader pool key sessionId k = do
+reader pool _ sessionId k = do
     res <- liftIO $ withMySQLConn pool $ \conn ->
         query conn qryLookupSession'' (sessionId, encode k)
     case res of
         [Only value]    -> case decode value of
-            Right value'    -> return $ Just value'
-            Left error      -> return Nothing
-        []              -> return Nothing
+            Right value' -> return $ Just value'
+            Left _       -> return Nothing
+
+        _              -> return Nothing
 
 writer :: (WithMySQLConn a, Serialize k, Eq k, Serialize v, MonadIO m) => a -> B.ByteString -> Int64 -> k -> v -> m ()
-writer pool key sessionId k v = do
+writer pool _ sessionId k v = do
     let k' = encode k
         v' = encode v
     liftIO $ withMySQLConn pool $ \conn ->
         withTransaction conn $ do
             res <- query conn qryLookupSession''' (sessionId, k') :: IO [Only Int64]
             case res of
-                [Only id]   -> void $ execute conn qryUpdateSessionEntry (v', sessionId, k')
-                _           -> void $ execute conn qryCreateSessionEntry (sessionId, k', v')
+                [Only _]   -> void $ execute conn qryUpdateSessionEntry (v', sessionId, k')
+                _          -> void $ execute conn qryCreateSessionEntry (sessionId, k', v')
 
 ignoreSqlError :: ResultError -> IO ()
 ignoreSqlError _ = return ()
